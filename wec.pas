@@ -1,57 +1,140 @@
-program WorkExperienceCalculator; { wec version 0.0.1 }
-
+program WorkExperienceCalculator; { wec version 0.0.2 }
 type
-    Numtype = integer;
+    NumericType = integer;
     Date = record
-        Day: Numtype;
-        Month: Numtype;
-        Year: Numtype;
+        Day: NumericType;
+        Month: NumericType;
+        Year: NumericType;
     end;
+
+procedure CheckParameterCount();
+begin
+    if ParamCount() = 0 then
+    begin
+        writeln(StdErr, 'wec: Expected parameter not found');
+        halt(1)
+    end
+end;
+
+procedure PrintVersion();
+begin
+    writeln(output, 'wec: Version 0.0.2');
+    halt(0)
+end;
+
+procedure PrintTemplate();
+begin
+    writeln(output, 'wec: [Days/Months/Years]');
+    halt(0)
+end;
+
+procedure OpenInputFile(var Infile: text);
+begin
+    {$I-}
+    assign(Infile, ParamStr(1));
+    reset(Infile);
+    if IOResult <> 0 then
+    begin
+        writeln(StdErr, 'wec: Failed to open the file');
+        halt(1)
+    end
+end;
+
+procedure CheckReadingSuccess(var Infile: text);
+begin
+    {$I-}
+    if IOResult <> 0 then
+    begin
+        writeln(StdErr, 'wec: Failed to read data from file');
+        close(Infile);
+        halt(1)
+    end
+end;
+
+function IsNumber(c: char): boolean;
+begin
+    IsNumber := (c >= '0') and (c <= '9')
+end;
+
+function IsValidChar(ch: char): boolean;
+begin
+    IsValidChar := IsNumber(ch) or (ch = #32) or (ch = #10) or (ch = '-') or
+        (ch = '.')
+end;
+
+procedure CheckCharacter(var Infile: text; ch: char);
+begin
+    if not IsValidChar(ch) then
+    begin
+        writeln(StdErr, 'wec: Invalid character was found');
+        writeln(StdErr, 'wec: Valid characters: space, line translation,', 
+            ' dot, dash and numbers');
+        close(Infile);
+        halt(1)
+    end
+end;
 
 procedure ReadDate(var Infile: text; var OutDate: Date);
 var
-    temp: array [1..3] of Numtype;
-    cnt: Numtype;
-    c: char;
+    Temp: array [1..3] of NumericType;
+    Storage: NumericType;
+    ch: char;
     i: byte;
 begin
     for i := 1 to 3 do
     begin
-        cnt := 0;
-        read(Infile, c);
-        while (c <> '.') and (c <> '-') and (c <> #10) do
+        Storage := 0;
+        repeat
+            read(Infile, ch);
+            CheckCharacter(Infile, ch);
+            CheckReadingSuccess(Infile);
+        until (ch <> #32) and (ch <> #10);
+        while (ch <> '.') and (ch <> '-') and (ch <> #10) do
         begin
-            cnt := cnt * 10 + (ord(c) - ord('0'));
-            read(Infile, c)
+            Storage := Storage * 10 + (ord(ch) - ord('0'));
+            repeat
+                read(Infile, ch);
+                CheckCharacter(Infile, ch);
+                CheckReadingSuccess(Infile);
+            until (ch <> #32)
         end;
-        temp[i] := cnt
+        Temp[i] := Storage
     end;
-    OutDate.Day := temp[1];
-    OutDate.Month := temp[2];
-    OutDate.Year := temp[3]
+    OutDate.Day := Temp[1];
+    OutDate.Month := Temp[2];
+    OutDate.Year := Temp[3]
 end;
 
-procedure ReadLine(var Infile: text; var GenSD, GenED: Date);
+procedure ReadFile(var Infile: text; var GeneralStart, GeneralEnd: Date);
 var
     Temp: Date;
 begin
-    ReadDate(Infile, Temp);
-    GenSD.Day := GenSD.Day + Temp.Day;
-    GenSD.Month := GenSD.Month + Temp.Month;
-    GenSD.Year := GenSD.Year + Temp.Year;
-    ReadDate(Infile, Temp);
-    GenED.Day := GenED.Day + Temp.Day;
-    GenED.Month := GenED.Month + Temp.Month;
-    GenED.Year := GenED.Year + Temp.Year;
+    if SeekEof(Infile) then
+    begin
+        writeln(StdErr, 'wec: This file is empty');
+        close(Infile);
+        halt(1)
+    end;
+    while not SeekEof(Infile) do
+    begin
+        ReadDate(Infile, Temp);
+        GeneralStart.Day := GeneralStart.Day + Temp.Day;
+        GeneralStart.Month := GeneralStart.Month + Temp.Month;
+        GeneralStart.Year := GeneralStart.Year + Temp.Year;
+        ReadDate(Infile, Temp);
+        GeneralEnd.Day := GeneralEnd.Day + Temp.Day;
+        GeneralEnd.Month := GeneralEnd.Month + Temp.Month;
+        GeneralEnd.Year := GeneralEnd.Year + Temp.Year;
+    end
 end;
 
-procedure CalculateExperience(var PersonExp: Date; GSDate, GEDate: Date);
+procedure CalculateExperience(var OutData: Date; GenStart, GenEnd: Date);
 var
     Temp: Date;
 begin
-    Temp.Day := GEDate.Day - GSDate.Day;
-    Temp.Month := GEDate.Month - GSDate.Month;
-    Temp.Year := GEDate.Year - GSDate.Year;
+    Temp.Day := GenEnd.Day - GenStart.Day;
+    Temp.Month := GenEnd.Month - GenStart.Month;
+    Temp.Year := GenEnd.Year - GenStart.Year;
     while Temp.Day < 0 do
     begin
         Temp.Day := Temp.Day + 30;
@@ -72,60 +155,46 @@ begin
         Temp.Month := Temp.Month - 12;
         Temp.Year := Temp.Year + 1
     end;
-    PersonExp := Temp
+    OutData := Temp
 end;
 
-procedure PrintPersonExperience(var InData: Date);
+procedure BuildString(Number: NumericType; var OutStr: string; Divider: char);
+var
+    Temp: string[2];
+begin
+    if Number < 10 then
+        OutStr := OutStr + '0';
+    str(Number, Temp);
+    OutStr := OutStr + Temp + Divider
+end;
+
+procedure PrintOutputString(var InputDate: Date);
 var
     Temp: string;
-    DStr, MStr, YStr: string[2];
 begin
-    Temp := 'wec: [';
-    str(InData.Day, DStr);
-    str(InData.Month, MStr);
-    str(InData.Year, YStr);
-    if InData.Day < 10 then
-        Temp := Temp + '0';
-    Temp := Temp + DStr + '/';
-    if InData.Month < 10 then
-        Temp := Temp + '0';
-    Temp := Temp + MStr + '/';
-    if InData.Year < 10 then
-        Temp := Temp + '0';
-    Temp := Temp + YStr + ']';
-    writeln(output, Temp)
+    Temp := '[';
+    BuildString(InputDate.Day, Temp, '/');
+    BuildString(InputDate.Month, Temp, '/');
+    BuildString(InputDate.Year, Temp, ']');
+    writeln(output, 'wec: ', Temp)
 end;
 
 var
-    GSDate, GEDate: Date;
-    PersonExp: Date;
+    GeneralStart: Date;
+    GeneralEnd: Date;
+    PersonExperience: Date;
     Infile: text;
 begin
-    {$I-}
-    if ParamCount() = 0 then
-    begin
-        writeln(StdErr, 'wec: Expected parameter not found');
-        halt(1)
+    CheckParameterCount();
+    case ParamStr(1) of
+    'version':
+        PrintVersion();
+    'template':
+        PrintTemplate();
+    else
+        OpenInputFile(Infile)
     end;
-    if ParamStr(1) = 'version' then
-    begin
-        writeln(output, 'wec: Version 0.0.1');
-        halt(0)
-    end;
-    if ParamStr(1) = 'template' then
-    begin
-        writeln(output, 'wec: [Days/Months/Years]');
-        halt(0)
-    end;
-    assign(Infile, ParamStr(1));
-    reset(Infile);
-    if IOResult <> 0 then
-    begin
-        writeln(StdErr, 'wec: Failed to open file ', '[', ParamStr(1), ']');
-        halt(1)
-    end;
-    while not SeekEof(Infile) do
-        ReadLine(Infile, GSDate, GEDate);
-    CalculateExperience(PersonExp, GSDate, GEDate);
-    PrintPersonExperience(PersonExp)
+    ReadFile(Infile, GeneralStart, GeneralEnd);
+    CalculateExperience(PersonExperience, GeneralStart, GeneralEnd);
+    PrintOutputString(PersonExperience)
 end.
